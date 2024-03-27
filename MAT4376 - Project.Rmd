@@ -2,6 +2,8 @@
 title: "MAT4376 - Project"
 author: "Jaye Foster"
 date: "`r Sys.Date()`"
+header-includes:
+  - \usepackage{amsmath}
 output:
   pdf_document: default
   html_document: default
@@ -17,16 +19,13 @@ library(glmnet)
 library(ggplot2)
 library(dplyr)
 ```
+#Introduction
 
-Elastic net is a penalized regression method that combines the penalties
-of RIDGE and LASSO to achieve sparcity and deal with linearly dependent
-predictors. We will analyze the performance of Elastic Net to better
-understand how the selection of $\alpha$, and correlation between
-predictors can effect the MSE and number of predictors deemed
-significant.
+Elastic net is a regression method that provides a possible solution to two common problems in high-dimensional data analysis; sparsity and linear dependence in covariates. By combining the penalties of LASSO and RIDGE regression, Elastic Net can take advantage of the strengths of each method to varying extents. An additional parameter $\alpha$ controls the weight given to the LASSO and RIDGE portions of the penalty, and must be chosen carefully. We will see how Elastic Net performs with different levels of correlation between predictors and choices of $\alpha$. 
 
-We begin with some theoretical background on LASSO and RIDGE to create
-the Elastic Net method. We consider the linear model
+#Background Theory
+
+We begin with some theoretical background on LASSO and RIDGE to see how the Elastic Net method is derived. Consider the linear model
 $$\boldsymbol{Y}=\boldsymbol{X}\boldsymbol{\beta}+\boldsymbol{\epsilon}$$
 where 
 
@@ -44,7 +43,7 @@ $$\hat{\boldsymbol{\beta}}_{OLS} = \text{argmin}_{\boldsymbol{\beta}} \{ L(\bold
 The closed-form solution can be given by
 $$\hat{\boldsymbol{\beta}}_{OLS} = (\boldsymbol{X}^T \boldsymbol{X})^{-1} \boldsymbol{X}^T \boldsymbol{Y}$$
 
-If the data is high-dimensional, i.e. $n<p$, we cannot use OLS. Instead, we must assume that only some of the $\beta_j$ are non-zero, an assumption  known as sparcity. To achieve this, we impose a constraint on the norm of $\boldsymbol{\beta}$. Instead of minimizing just the quadratic loss function $L(\beta)$, the new estimator is found by minimizing 
+If the data is high-dimensional, i.e. $n<p$, we cannot use OLS. Instead, we must assume that only some of the $\beta_j$ are non-zero, an assumption known as sparsity. To achieve this, we impose a constraint on the norm of $\boldsymbol{\beta}$. Instead of minimizing just the quadratic loss function $L(\beta)$, the new estimator is found by minimizing 
 $$L(\boldsymbol{\beta})+ \lambda \| \boldsymbol{\beta} \|$$ where $\lambda$ is the regularization parameter that controls how many of the $\beta_j$ are non-zero. 
 
 We will consider two possible norms for our penalty, $L_1$ and $L_2$, which give the LASSO and RIDGE estimators. 
@@ -55,19 +54,117 @@ $$ \hat{\boldsymbol{\beta}}_{LASSO}= \text{argmin}_{\boldsymbol{\beta}} \left\{ 
 
 $$ \hat{\boldsymbol{\beta}}_{RIDGE}= \text{argmin}_{\boldsymbol{\beta}} \left\{ \frac{1}{2n} \left\| \boldsymbol{Y} - \boldsymbol{X}\boldsymbol{\beta}  \right\|^2 _2  + \lambda \| \boldsymbol{\beta} \|_2 \right\}$$
 
-We compare these methods to see that LASSO can achieve sparcity while RIDGE cannot. That is, LASSO can set some of the coefficients $\beta_j$ to exactly zero while RIDGE only shrinks them smaller and smaller. When some of the predictors are strongly correlated the LASSO solution is not unique while the RIDGE solution is. As a result, neither LASSO nor RIDGE can deal with linearly dependent predictors while also achieving sparcity.
+We compare these methods to see that LASSO can achieve sparsity while RIDGE cannot. That is, LASSO can set some of the coefficients $\beta_j$ to exactly zero while RIDGE only shrinks them smaller and smaller. When some of the predictors are strongly correlated the LASSO solution is not unique while the RIDGE solution is. As a result, neither LASSO nor RIDGE can deal with linearly dependent predictors while also achieving sparsity.
 
 To solve this problem, we create a new estimator that combines the LASSO and RIDGE penalties. This is the idea behind Elastic Net. Given a mixture parameter $\alpha \in [0,1]$ and a regularization parameter $\lambda >0$, the Elastic Net estimator is given by;
 $$\hat{\boldsymbol{\beta}}_{EN}=\text{argmin}_{\boldsymbol{\beta}} \left\{ \frac{1}{2n} \left\| \boldsymbol{Y} - \boldsymbol{X}\boldsymbol{\beta}  \right\|^2 _2 + \lambda [ \alpha \| \boldsymbol{\beta} \|_1 + (1- \alpha) \| \boldsymbol{\beta} \|_2 ] \right\}$$
-Now we have an estimator that can achieve sparcity and handle linearly dependent predictors at the same time. Let's see how it works in practice.
+Now we have an estimator that is capable of achieving sparsity and handling linearly dependent predictors at the same time. 
 
-Suppose we have a $n=100$ observations from the following model where $X_1$ and $X_2$ are highly correlated and $X_3$ is uncorrelated. 
+#Implementation
+To analyze the performance of Elastic Net we will implement the estimator defined above in R.
+Note: We will use the function \mathtt{cv.glmnet()} from the package \mathtt{glmnet} to select $\lambda$ by cross-validation and fit a Gaussian Elastic Net model with mixture parameter $\alpha$. The function takes as input a design matrix $X$, a response vector $Y$, the family of the error distribution (Gaussian for our purposes), and the mixture parameter $\alpha$. The function outputs a matrix containing the various properties of the models for $X$ and $Y$ fit with $\lambda$ as selected by CV and $\alpha$ as given.  
+Below we write a function \mathtt{elastic.net.est(X, Y, alpha)} that fits an Elastic Net model for $X$ and $Y$, with $\alpha$ as given and $\lambda$ chosen by CV. First, we call \mathtt{cv.glmnet()} to select a sequence of $\lambda$ values, and fit the Elastic Net model for each. Then, we retrieve the minimum value of $\lambda$, and from the model fit with such $\lambda$, extract the estimated coefficients $\boldsymbol{\beta}$, number of predictors selected, fitted values, and mean squared error (MSE). The function then outputs the user-chosen $\alpha$, $\lambda$ as selected by CV, the number of predictors selected with $\lambda$, and the MSE of the model. 
+```{r }
+elastic.net.est<-function(X, Y, alpha){
+  cross.val.fit<-cv.glmnet(X, Y, family="gaussian", alpha=alpha)
+  lambda<-cross.val.fit$lambda.min
+  coefs<-coef(cross.val.fit, s="lambda.min")
+  fit<-glmnet(X, Y, "gaussian", alpha=alpha)
+  plot(fit, xvar="lambda", label=TRUE)
+  signif.pred<-length(which(coefs!=0))
+  yhat<-cbind(1, X)%*%coefs
+  SE<-mean((Y-yhat)^2)
+  output<-cbind(alpha, lambda, signif.pred, SE)
+  return(output)
+}
+```
 
-$$Y=\beta_0 + \beta_1 X_{1} + \beta_2 X_{2} + \beta_3 X_{3},$$ $$\beta_0=1,\beta_1=2,\beta_2=1,\beta_3=3$$
-For $\alpha_1=0.1, \alpha_2=0.5, \alpha_3=0.9$, we can select $\lambda$ by cross-validation and find the elastic net estimator for each. 
+Now, we can write a function to simulate data from a specified model where some of the predictors are correlated, and see how the Elastic Net estimate performs. The function \mathtt{simulate.elastic.net(n, p, d, rho, beta, alpha)} takes as input the number of observations (n), the number of covariates (p), the number of covariates that are correlated (d), the correlation between the d covariates (rho), the true values of $\boldsymbol{\beta}$ (beta), and a value of $\alpha$ (alpha). First, we build the $d \times d$ covariance matrix \mathtt{A} for the correlated variables and then we build the $p \times p$ covariance matrix \mathtt{Cov} with \mathtt{A} as the covariance of the first d variables. We then generate $X$ by simulating n observations from the p-dimensional multivariate normal distribution with mean 0 and covariance given by the matrix \mathtt{Cov}, and generate $Y$ from the specified model with standard normal errors. Finally, we call our function \mathtt{elastic.net.est(X, Y, alpha)} and return $\alpha$, $\lambda$, the number of predictors and MSE as before. 
+
+```{r }
+simulate.elastic.net<-function(n, p, d, rho, beta, alpha){
+  A<-diag(1, d, d)
+  for(i in 1:d){
+    for(j in 1:d){
+      if(j!=i){A[i,j]<-rho}}}
+  Cov<-diag(1, p, p)
+  for(i in 1:d){
+    for( j in 1:d){
+      Cov[i,j]<-A[i,j]}}
+  X<-mvrnorm(n, rep(0, p), Cov)
+  Y<-X%*%beta+rnorm(n)
+  mod<-elastic.net.est(X, Y, alpha)
+  return(mod)}
+```
+
+To better spot trends in the performance of Elastic net, it will also be useful to conduct multiple iterations of Elastic Net estimation simulating from the same multivariate normal distribution, and also compare performance as the correlation between covariates changes. We will write functions \mathtt{MonteCarlo.elastic.net(n, p, d, rho, beta, Alpha, K)} and \mathtt{vector.MonteCarlo.EN(n, p, d, Rho, beta, Alpha, K)} to do so now. First, we write
+
+```{r }
+MonteCarlo.elastic.net<-function(n, p, d, rho, beta, alpha, K){
+  output<-cbind(1:K, 0, 0, 0, 0)
+  for(k in 1:K){
+    mod<-simulate.elastic.net(n, p, d, rho, beta, alpha)
+    output[k,(2:5)]<-mod
+  }
+  return(output)
+}
+
+vector.MonteCarlo.EN<-function(n, p, d, Rho, beta, Alpha, K){
+  results<-expand.grid(Alpha, Rho)
+  results<-cbind(results, 0, 0, 0)
+  colnames(results)<-c("Alpha", "Rho", "Lambda", "No. Variables", "MSE")
+  for(i in 1:length(results[,1])){
+    output<-cbind(1:K, 0, 0, 0, 0)
+    for(k in 1:K){
+      mod<-simulate.elastic.net(n, p, d, rho, beta, alpha)}
+    
+    
+    mod<-MonteCarlo.elastic.net(n, p, d, results[i,2], beta, results[i,1], K)
+    results[i, 3]<-mean(mod[,3])
+    results[i, 4]<-mean(mod[,4])
+    results[i, 5]<-mean(mod[,5])
+  }
+  return(results)
+  
+}
 
 
 
+
+```
+
+Now we can use this implementation to complete an example. Suppose we have a $n=100$ observations from the following model with $p=3$ where $X_1$ and $X_2$ have correlation $\rho=0.75$, and $X_3$ is uncorrelated. We find the Elastic Net estimates of $\boldsymbol{\beta}$ for three values of $\alpha$, $\alpha_1=0.1, \alpha_2=0.3, \alpha_3=0.9$, and compare.
+
+$$Y=X\boldsymbol{\beta} + \boldsymbol{\epsilon},$$ 
+$$\beta_1=2,\beta_2=2,\beta_3=3$$
+```{r }
+n<-100
+p<-3
+d<-2
+beta<-c(2,2,3)
+rho<-0.999
+alpha1<-0.1
+alpha2<-0.5
+alpha3<-0.9
+
+p3.rho75.LASSO<-simulate.elastic.net(n, p, d, rho, beta, 0)
+p3.rho75.alpha1<-simulate.elastic.net(n, p, d, rho, beta, alpha1)
+p3.rho75.alpha2<-simulate.elastic.net(n, p, d, rho, beta, alpha2)
+p3.rho75.alpha3<-simulate.elastic.net(n, p, d, rho, beta, alpha3)
+p3.rho75.RIDGE<-simulate.elastic.net(n, p, d, rho, beta, 1)
+
+
+
+```
+We can see as values of alpha decrease shrinkage decreases
+
+Next, lets try a high-dimensional example. We take $n=100$ and $p=1000$ and generate the regression coefficients randomly from the interval [-1,1].
+```{r }
+
+
+
+
+```
 ```{r }
 n<-100 #number of observations
 beta<-c(1,2,1,3) #true values of beta
