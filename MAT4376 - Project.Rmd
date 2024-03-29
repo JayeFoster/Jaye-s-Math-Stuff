@@ -7,6 +7,7 @@ header-includes:
 output:
   pdf_document: default
   html_document: default
+indent: true
 editor_options: 
   markdown: 
     wrap: 72
@@ -18,12 +19,18 @@ library(MASS)
 library(glmnet)
 library(ggplot2)
 library(dplyr)
+library(knitr)
+
 ```
-#Introduction
+
+# Introduction
+
 
 Elastic net is a regression method that provides a possible solution to two common problems in high-dimensional data analysis; sparsity and linear dependence in covariates. By combining the penalties of LASSO and RIDGE regression, Elastic Net can take advantage of the strengths of each method to varying extents. An additional parameter $\alpha$ controls the weight given to the LASSO and RIDGE portions of the penalty, and must be chosen carefully. We will see how Elastic Net performs with different levels of correlation between predictors and choices of $\alpha$. 
 
-#Background Theory
+
+# Background Theory
+
 
 We begin with some theoretical background on LASSO and RIDGE to see how the Elastic Net method is derived. Consider the linear model
 $$\boldsymbol{Y}=\boldsymbol{X}\boldsymbol{\beta}+\boldsymbol{\epsilon}$$
@@ -46,43 +53,71 @@ $$\hat{\boldsymbol{\beta}}_{OLS} = (\boldsymbol{X}^T \boldsymbol{X})^{-1} \bolds
 If the data is high-dimensional, i.e. $n<p$, we cannot use OLS. Instead, we must assume that only some of the $\beta_j$ are non-zero, an assumption known as sparsity. To achieve this, we impose a constraint on the norm of $\boldsymbol{\beta}$. Instead of minimizing just the quadratic loss function $L(\beta)$, the new estimator is found by minimizing 
 $$L(\boldsymbol{\beta})+ \lambda \| \boldsymbol{\beta} \|$$ where $\lambda$ is the regularization parameter that controls how many of the $\beta_j$ are non-zero. 
 
+
 We will consider two possible norms for our penalty, $L_1$ and $L_2$, which give the LASSO and RIDGE estimators. 
 
 
 $$ \hat{\boldsymbol{\beta}}_{LASSO}= \text{argmin}_{\boldsymbol{\beta}} \left\{ \frac{1}{2n} \left\| \boldsymbol{Y} - \boldsymbol{X}\boldsymbol{\beta}  \right\|^2 _2  + \lambda \| \boldsymbol{\beta} \|_1 \right\}$$
 
 
-$$ \hat{\boldsymbol{\beta}}_{RIDGE}= \text{argmin}_{\boldsymbol{\beta}} \left\{ \frac{1}{2n} \left\| \boldsymbol{Y} - \boldsymbol{X}\boldsymbol{\beta}  \right\|^2 _2  + \lambda \| \boldsymbol{\beta} \|_2 \right\}$$
+$$ \hat{\boldsymbol{\beta}}_{RIDGE}= \text{argmin}_{\boldsymbol{\beta}} \left\{ \frac{1}{2n} \left\| \boldsymbol{Y} - \boldsymbol{X}\boldsymbol{\beta}  \right\|^2 _2  + \lambda \| \boldsymbol{\beta} \|^2_2 \right\}$$
 
-We compare these methods to see that LASSO can achieve sparsity while RIDGE cannot. That is, LASSO can set some of the coefficients $\beta_j$ to exactly zero while RIDGE only shrinks them smaller and smaller. When some of the predictors are strongly correlated the LASSO solution is not unique while the RIDGE solution is. As a result, neither LASSO nor RIDGE can deal with linearly dependent predictors while also achieving sparsity.
+A comparison of these methods shows that LASSO can achieve sparsity while RIDGE cannot. That is, LASSO can set some of the coefficients $\beta_j$ to exactly zero while RIDGE only shrinks them smaller and smaller. Additionally, when some of the predictors are strongly correlated the LASSO solution is not unique while the RIDGE solution is. As a result, neither LASSO nor RIDGE can deal with linearly dependent predictors while also achieving sparsity.
+
 
 To solve this problem, we create a new estimator that combines the LASSO and RIDGE penalties. This is the idea behind Elastic Net. Given a mixture parameter $\alpha \in [0,1]$ and a regularization parameter $\lambda >0$, the Elastic Net estimator is given by;
-$$\hat{\boldsymbol{\beta}}_{EN}=\text{argmin}_{\boldsymbol{\beta}} \left\{ \frac{1}{2n} \left\| \boldsymbol{Y} - \boldsymbol{X}\boldsymbol{\beta}  \right\|^2 _2 + \lambda [ \alpha \| \boldsymbol{\beta} \|_1 + (1- \alpha) \| \boldsymbol{\beta} \|_2 ] \right\}$$
-Now we have an estimator that is capable of achieving sparsity and handling linearly dependent predictors at the same time. 
+$$\hat{\boldsymbol{\beta}}_{EN}=\text{argmin}_{\boldsymbol{\beta}} \left\{ \frac{1}{2n} \left\| \boldsymbol{Y} - \boldsymbol{X}\boldsymbol{\beta}  \right\|^2 _2 + \lambda [ \alpha \| \boldsymbol{\beta} \|_1 + \frac{ (1- \alpha)}{2} \| \boldsymbol{\beta} \|^2_2 ] \right\}$$
+Now we have an estimator that is capable of achieving sparsity and handling linearly dependent predictors at the same time, but we still have to choose the value of $\alpha$. 
 
-#Implementation
+
+# Implementation
+
+
 To analyze the performance of Elastic Net we will implement the estimator defined above in R.
-Note: We will use the function \mathtt{cv.glmnet()} from the package \mathtt{glmnet} to select $\lambda$ by cross-validation and fit a Gaussian Elastic Net model with mixture parameter $\alpha$. The function takes as input a design matrix $X$, a response vector $Y$, the family of the error distribution (Gaussian for our purposes), and the mixture parameter $\alpha$. The function outputs a matrix containing the various properties of the models for $X$ and $Y$ fit with $\lambda$ as selected by CV and $\alpha$ as given.  
-Below we write a function \mathtt{elastic.net.est(X, Y, alpha)} that fits an Elastic Net model for $X$ and $Y$, with $\alpha$ as given and $\lambda$ chosen by CV. First, we call \mathtt{cv.glmnet()} to select a sequence of $\lambda$ values, and fit the Elastic Net model for each. Then, we retrieve the minimum value of $\lambda$, and from the model fit with such $\lambda$, extract the estimated coefficients $\boldsymbol{\beta}$, number of predictors selected, fitted values, and mean squared error (MSE). The function then outputs the user-chosen $\alpha$, $\lambda$ as selected by CV, the number of predictors selected with $\lambda$, and the MSE of the model. 
+Note: We will use the function $\mathtt{cv.glmnet()}$ from the package $\mathtt{glmnet}$ to select $\lambda$ by cross-validation and fit a Gaussian Elastic Net model with mixture parameter $\alpha$. The function takes as input a design matrix $X$, a response vector $Y$, the family of the error distribution (Gaussian for our purposes), and the mixture parameter $\alpha$. The function outputs a matrix containing the various properties of the models for $X$ and $Y$ fit with $\lambda$ as selected by CV and $\alpha$ as given. 
+
+Below we write a function $\mathtt{elastic.net.est(X, Y, alpha, est.coefs, log.lambda)}$ to find the Elastic Net estimate that takes as input:
+\begin{itemize}
+  \item a matrix of covariates $X$;
+  \item a response vector $Y$;
+  \item a mixture parameter $\alpha \in [0,1]$, $\mathtt{alpha}$;
+  \item optional logical values $\mathtt{est.coefs}$ and $\mathtt{log.lambda}$ to print the estimated coefficients or plot the solution path.
+\end{itemize}
+
+The function first  calls $\mathtt{cv.glmnet()}$ to select a sequence of $\lambda$ values and fit the Elastic Net model for each. Then, we retrieve the minimum value of $\lambda$, and from the model fit with such $\lambda$, extract the estimated coefficients $\boldsymbol{\beta}$, the number of predictors selected, the fitted values, and mean squared error (MSE). The function then outputs the user-chosen $\alpha$, $\lambda$ as selected by CV, the number of predictors selected with $\lambda$, the MSE and the estimated coefficients or solution path if requested. 
 ```{r }
-elastic.net.est<-function(X, Y, alpha){
+elastic.net.est<-function(X, Y, alpha, est.coefs=FALSE, log.lambda=FALSE){
   cross.val.fit<-cv.glmnet(X, Y, family="gaussian", alpha=alpha)
   lambda<-cross.val.fit$lambda.min
   coefs<-coef(cross.val.fit, s="lambda.min")
   fit<-glmnet(X, Y, "gaussian", alpha=alpha)
-  plot(fit, xvar="lambda", label=TRUE)
+  if(est.coefs==TRUE){
+    print(paste("alpha = ", alpha, "rho = ", round(cor(X[,1], X[,2]), digits=4)))
+    print(coefs)}
+  if(log.lambda==TRUE){
+    plot(fit, xvar="lambda", label=TRUE, 
+         sub = paste("lambda = ", round(lambda, digits=4),
+                     "alpha = ", alpha))}
   signif.pred<-length(which(coefs!=0))
   yhat<-cbind(1, X)%*%coefs
   SE<-mean((Y-yhat)^2)
   output<-cbind(alpha, lambda, signif.pred, SE)
-  return(output)
-}
+  return(output)}
 ```
 
-Now, we can write a function to simulate data from a specified model where some of the predictors are correlated, and see how the Elastic Net estimate performs. The function \mathtt{simulate.elastic.net(n, p, d, rho, beta, alpha)} takes as input the number of observations (n), the number of covariates (p), the number of covariates that are correlated (d), the correlation between the d covariates (rho), the true values of $\boldsymbol{\beta}$ (beta), and a value of $\alpha$ (alpha). First, we build the $d \times d$ covariance matrix \mathtt{A} for the correlated variables and then we build the $p \times p$ covariance matrix \mathtt{Cov} with \mathtt{A} as the covariance of the first d variables. We then generate $X$ by simulating n observations from the p-dimensional multivariate normal distribution with mean 0 and covariance given by the matrix \mathtt{Cov}, and generate $Y$ from the specified model with standard normal errors. Finally, we call our function \mathtt{elastic.net.est(X, Y, alpha)} and return $\alpha$, $\lambda$, the number of predictors and MSE as before. 
-
+Now, we can write a function to simulate data from a specified model where some of the predictors are correlated, and see how the Elastic Net estimate performs. The function $\mathtt{simulate.elastic.net(n, p, d, rho, beta, alpha, est.coefs, log.lambda)}$ takes as input:
+\begin{itemize}
+  \item the number of observations $n$,
+  \item the number of covariates $p$,
+  \item the number of correlated variables $d$,
+  \item the correlation between the $d$ variables $\mathtt{Rho}$,
+  \item true values of regression coefficients, $\mathtt{beta}$
+  \item a mixture parameter $\mathtt{Alpha}$,
+  \item logical parameters $\mathtt{est.coefs}$ and $\mathtt{log.lambda}$ as before.
+\end{itemize}
+First, we build the $d \times d$ covariance matrix $\mathtt{A}$ for the correlated variables and then we build the $p \times p$ covariance matrix $\mathtt{Cov}$ with $\mathtt{A}$ as the covariance of the first d variables. We then generate $X$ by simulating $n$ observations from the $p$-dimensional multivariate normal distribution with mean 0 and covariance matrix $\mathtt{Cov}$, and generate $Y$ from the specified model with standard normal errors. Finally, we call our function $\mathtt{elastic.net.est(X, Y, alpha)}$ to fit the Elastic Net model and return $\alpha$, $\lambda$, the number of predictors and MSE as before. 
 ```{r }
-simulate.elastic.net<-function(n, p, d, rho, beta, alpha){
+simulate.elastic.net<-function(n, p, d, rho, beta, alpha, est.coefs=FALSE, log.lambda=FALSE){
   A<-diag(1, d, d)
   for(i in 1:d){
     for(j in 1:d){
@@ -93,258 +128,203 @@ simulate.elastic.net<-function(n, p, d, rho, beta, alpha){
       Cov[i,j]<-A[i,j]}}
   X<-mvrnorm(n, rep(0, p), Cov)
   Y<-X%*%beta+rnorm(n)
-  mod<-elastic.net.est(X, Y, alpha)
+  mod<-elastic.net.est(X, Y, alpha, est.coefs, log.lambda)
   return(mod)}
 ```
 
-To better spot trends in the performance of Elastic net, it will also be useful to conduct multiple iterations of Elastic Net estimation simulating from the same multivariate normal distribution, and also compare performance as the correlation between covariates changes. We will write functions \mathtt{MonteCarlo.elastic.net(n, p, d, rho, beta, Alpha, K)} and \mathtt{vector.MonteCarlo.EN(n, p, d, Rho, beta, Alpha, K)} to do so now. First, we write
-
+To better spot trends in the performance of Elastic net, it will also be useful to conduct multiple iterations of Elastic Net estimation, and compare performance as the correlation between covariates, and the value of $\alpha$ changes. We will write a function $\mathtt{MonteCarlo.elastic.net(n, p, d, rho, beta, Alpha, K)}$ to take as input:
+\begin{itemize}
+  \item the number of observations $n$,
+  \item the number of covariates $p$,
+  \item the number of correlated variables $d$,
+  \item a vector of correlation values $\mathtt{Rho}$,
+  \item true values of regression coefficients, $\mathtt{beta}$
+  \item a vector of $\alpha$ values $\mathtt{Alpha}$,
+  \item the number of iterations $K$,
+  \item logical values $\mathtt{est.coefs}$ and $\mathtt{log.lambda}$.
+\end{itemize}
+The function builds a table $\mathtt{results}$ with a row for every combination $\rho$ and $\alpha$, and columns for the average value of $\lambda$, number of covariates selected, and MSE. For every pair of $\rho$ and $\alpha$, we call the function $\mathtt{simulate.elastic.net(n, p, d, rho, beta, alpha)}$ $K$ times and record the output at each iteration. Finally, the function calculates the mean values of $\lambda$, the number of variables selected, and the MSE for the all possible combinations and returns the table of results.
 ```{r }
-MonteCarlo.elastic.net<-function(n, p, d, rho, beta, alpha, K){
-  output<-cbind(1:K, 0, 0, 0, 0)
-  for(k in 1:K){
-    mod<-simulate.elastic.net(n, p, d, rho, beta, alpha)
-    output[k,(2:5)]<-mod
-  }
-  return(output)
-}
-
-vector.MonteCarlo.EN<-function(n, p, d, Rho, beta, Alpha, K){
+MonteCarlo.elastic.net<-function(n, p, d, Rho, beta, Alpha, K, est.coefs=FALSE, log.lambda=FALSE){
   results<-expand.grid(Alpha, Rho)
   results<-cbind(results, 0, 0, 0)
   colnames(results)<-c("Alpha", "Rho", "Lambda", "No. Variables", "MSE")
   for(i in 1:length(results[,1])){
     output<-cbind(1:K, 0, 0, 0, 0)
     for(k in 1:K){
-      mod<-simulate.elastic.net(n, p, d, rho, beta, alpha)}
-    
-    
-    mod<-MonteCarlo.elastic.net(n, p, d, results[i,2], beta, results[i,1], K)
-    results[i, 3]<-mean(mod[,3])
-    results[i, 4]<-mean(mod[,4])
-    results[i, 5]<-mean(mod[,5])
-  }
-  return(results)
-  
-}
-
-
-
-
+      mod<-simulate.elastic.net(n, p, d, results[i, 2], beta, results[i, 1], est.coefs, log.lambda)
+      output[k,2:5]<-mod}
+    results[i, 3]<-mean(output[,3])
+    results[i, 4]<-mean(output[,4])
+    results[i, 5]<-mean(output[,5])}
+  return(results)}
 ```
 
-Now we can use this implementation to complete an example. Suppose we have a $n=100$ observations from the following model with $p=3$ where $X_1$ and $X_2$ have correlation $\rho=0.75$, and $X_3$ is uncorrelated. We find the Elastic Net estimates of $\boldsymbol{\beta}$ for three values of $\alpha$, $\alpha_1=0.1, \alpha_2=0.3, \alpha_3=0.9$, and compare.
+# Analysis of Performance
 
-$$Y=X\boldsymbol{\beta} + \boldsymbol{\epsilon},$$ 
-$$\beta_1=2,\beta_2=2,\beta_3=3$$
-```{r }
+Now we can use this implementation to analyze the performance of Elastic Net and find a method for determining the optimal value of $\alpha$. 
+
+
+First, we consider a simple case with $p<n$ to see how Elastic Net handles correlated variables. Suppose we have a $n=100$ observations from the following linear model with $p=3$, where $X_1$ and $X_2$ have correlation $\rho$. 
+
+$$Y_i=\beta_1 X_{i,1} + \beta_2 X_{i,2} + \beta_3 X_{i,3} + \epsilon_i,$$
+
+$$ X \sim N(\boldsymbol{0}, \Sigma),  \Sigma = \begin{bmatrix}
+                1 & \rho & 0 \\
+                \rho & 1 & 0\\
+                0 & 0 & 1
+                \end{bmatrix}$$
+$$\epsilon \sim N(\boldsymbol{0}, \boldsymbol{I})$$
+We find the Elastic Net estimate of $\boldsymbol{\beta}$ when the correlation between $X_1$ and $X_2$ is very strong and compare the results when coefficients $\beta_1$ and $\beta_2$ are balanced and unbalanced. 
+
+```{r BALANCED}
+#with balanced betas, LASSO, RIDGE, and EN all work well, for all correlations, i.e, if coefs are balanced, any alpha performs well always
 n<-100
 p<-3
 d<-2
-beta<-c(2,2,3)
-rho<-0.999
-alpha1<-0.1
-alpha2<-0.5
-alpha3<-0.9
+Rho<-c(0.999)
+Alpha<-c(0, 0.1, 0.9, 1)
+beta.bal<-c(5, 5, 2)
+beta.unbal<-c(7, 3, 2)
 
-p3.rho75.LASSO<-simulate.elastic.net(n, p, d, rho, beta, 0)
-p3.rho75.alpha1<-simulate.elastic.net(n, p, d, rho, beta, alpha1)
-p3.rho75.alpha2<-simulate.elastic.net(n, p, d, rho, beta, alpha2)
-p3.rho75.alpha3<-simulate.elastic.net(n, p, d, rho, beta, alpha3)
-p3.rho75.RIDGE<-simulate.elastic.net(n, p, d, rho, beta, 1)
+balanced.highlycorr<-MonteCarlo.elastic.net(n, p, d, Rho,beta.bal , Alpha, 1, TRUE, FALSE)
+balanced.highlycorr
 
+unbalanced.highlycorr<-MonteCarlo.elastic.net(n, p, d, Rho, beta.unbal, Alpha, 1, TRUE, FALSE)
+unbalanced.highlycorr
+```
+We can see that large values of $\alpha$ do better when coefficients are unbalanced, and small values of $\alpha$ perform well when coefficients are balanced, all while the correlation between $X_1$ and $X_2$ is very strong.
 
+Now we consider a smaller correlation value.
+
+```{r UNBALANCED}
+#If correlation is fairly small, LASSO, RIDGE, and EN perform well, i.e. if coefs unbalanced, any alpha performs well if not too correlated,
+Rho=c(0.75)
+Alpha=c(0, 0.1, 0.9, 1)
+
+print("For balanced effects:")
+balanced.smallcorr<-MonteCarlo.elastic.net(n, p, d, Rho,beta.bal , Alpha, 1, TRUE, FALSE)
+balanced.smallcorr
+
+print("For unbalanced effects:")
+unbalanced.smallcorr<-MonteCarlo.elastic.net(n, p, d, Rho, beta.unbal, Alpha, 1, TRUE, FALSE)
+unbalanced.smallcorr
 
 ```
-We can see as values of alpha decrease shrinkage decreases
-
-Next, lets try a high-dimensional example. We take $n=100$ and $p=1000$ and generate the regression coefficients randomly from the interval [-1,1].
-```{r }
-
-
-
-
+If the correlation between $X_1$ and $X_2$ is not as strong, we find the choice of $\alpha$ has little impact at all. All values of $\alpha$ perform fairly well for both balanced and unbalanced effects when the correlation is not extremely high. We display our findings in the table below. 
+```{r echo=FALSE}
+Correl<-rep(c("Strongly Correlated Variables", "No Strong Correlation"), each=2)
+bal<-rep(c("Balanced Effects", "Unbalanced Effects"),2)
+decision<-c("Small alpha performs well", "Large alpha performs well", "all alpha perform fairly well", "all alpha perform fairly well")
+findings<-data.frame(cbind(Correl, bal, decision))
+colnames(findings)<-c("Level of Correlation", "Coefficients of Correlated Variables", "Findings")
+kable(findings)
 ```
+
+
+Next, we consider the high-dimensional case to see how how sparsity is effected. Consider a linear model with $p=40$ covariates, $n=35$ observations, and where the first $d=10$ covariates are strongly correlation ($\rho=0.99$).
+$$Y=X\boldsymbol{\beta}+\boldsymbol{\epsilon},$$
+$$X \sim N(\boldsymbol{0}, \Sigma),$$
+$$\boldsymbol{\epsilon} \sim N(\boldsymbol{0}, \boldsymbol{I}).$$
+We will let $\beta_j=2$ for the first ten correlated variables, $\beta_j=1$ for the last five uncorrelated variables, and all other $\beta_j=0$, and compare how many covariates are selected when different values of $\alpha$ are used. 
 ```{r }
-n<-100 #number of observations
-beta<-c(1,2,1,3) #true values of beta
-rho<-0.90 #values of cov(X_1, X_2)
-alpha<-c(0.1, 0.3, 0.9) #values of alpha
+n=35
+p=40
+d=10
+Rho=0.99
+beta=c(rep(2, 10), rep(0, 25), rep(1, 5))
+Alpha=c(0, 0.1, 0.9, 1)
+K=1
+
+par(mfrow=c(1,2))
+highdim<-MonteCarlo.elastic.net(n, p, d, Rho, beta, Alpha, K, FALSE, TRUE)
+highdim
+```
+
+From the number of variables selected and the variable trace plots we can see that larger values of $\alpha$ provide more sparsity than smaller values. Additionally, the minimum $\lambda$ value chosen by CV decreases as $\alpha$ increases. This is compatible with our understanding that LASSO ($\alpha=1$) can achieve sparsity while RIDGE ($\alpha=0$) cannot.
 
 
-elastic_net3<-function(n, beta, rho, alpha, K){
-  num_alpha<-length(alpha)
-  num_rho<-length(rho)
-  Rho<-rep(0, num_alpha)                                                          #build table to hold squared errors
-  Alpha<-rep(0,num_rho)
-  NumPredictors<-rep(0, num_rho*num_alpha)
-  MSE_K<-cbind(Rho, Alpha, NumPredictors, matrix(0, num_rho*num_alpha, K))
-  
-  for(k in 1:K){
-    row=1
-    for(j in 1:num_rho){
-      cov<-matrix(data = c(1, rho[j], 0, rho[j], 1, 0, 0, 0, 1), nrow=3, ncol=3)  #build covariance matrix
-      X<-mvrnorm(n, mu=c(0,0,0), Sigma =cov)                                      #simulate X
-      design<-cbind(rep(1,n), X )
-      Y<-design%*%beta+rnorm(n)                                                   #simulate Y
-      for(i in 1:num_alpha){
-        fit_i<-glmnet(X, Y, family="gaussian", alpha=alpha[i])                 #fit model with cv
-        plot(fit_i, xvar="lambda", label=TRUE)
-        fit_i_coef<-coef(fit_i, s="lambda.min")                                   #extract coefficients
-        yhat<-design%*%fit_i_coef                                                 #extract fitted values
-        if(k<=1){
-          MSE_K[row,1]<-rho[j]
-          MSE_K[row,2]<-alpha[i]                                                  #fill MSE table with alpha and rho
-          MSE_K[row,3]<-length(fit_i_coef@x)}
-        MSE_K[row,(k+3)]<-mean(((Y-yhat)^2))                                      #fill MSE table with squared errors
-        row=row+1
-      }}}
-  results<-cbind(MSE_K[,(1:3)], 0)                                                #build results table
-  if(K==1){
-    results[,4]<-MSE_K[,4]
-  }
-  else{
-  results[,4]<-rowMeans(MSE_K[,(4:(K+3))])                # fill results table with MSE
-  }
-  colnames(results)[4]<-"MSE"
-  
-  return(as.data.frame(results))
+Our experimentation has shown us that the mixture parameter $\alpha$ is most important when there are highly correlated covariates, and when we know if the effects of the correlated covariates are balanced or unbalanced we can even select $\alpha$ that performs pretty well.  
+
+
+```{r }
+n=100
+p=3
+d=2
+Rho=0.5
+beta=c(2,1,3)
+Alpha=c(0, 0.5, 1)
+
+par(mfrow=c(1,2))
+ex1<-MonteCarlo.elastic.net(n, p, d, Rho, beta, Alpha, 1, TRUE, TRUE)
+ex1
+```
+We can see in the results table that as $\alpha$ increases from 0 to 1, the minimum $\lambda$ value selected by CV is decreasing. That is, if $\lambda$ is fixed, the larger the value of $\alpha$, the more sparsity will be achieved.   
+
+Now, lets see how Elastic Net performs with different levels of correlation between covariates.
+We again consider the linear model with $n=100$ and $p=3$, but now we will compare the results when the correlation between $X_1$ and $X_2$ is small, and when the correlation is large. First we analyze the results when the coefficients for $X_1$ and $X_2$ are balanced.
+
+In the case when predictors $X_1$ an $X_2$ are equally weighted in the true model, Elastic Net equally distributes the effects of $X_1$ and $X_2$, so the estimate performs well regardless of the correlation.
+
+
+Next, we observe what happens when $X_1$ and $X_2$ are unbalanced in the true model, and the correlation between $X_1$ and $X_2$ is not large.
+
+
+If $X_1$ and $X_2$ are highly correlated while their coefficients are unbalanced we observe the following.
+```{r }
+#LASSO equally distributes effects, bad
+#RIDGE performs well
+#EN with SMALL alpha equally distributes effects, bad
+#EN with LARGE alpha performs well, alpha ~ abs(rho)?
+n=100
+p=3
+d=2
+Rho=c(0.999)
+
+Alpha=c(0, 0.1, 0.2, 0.8, 0.9, 1)
+
+par(mfrow=c(3, 2))
+unbalanced<-MonteCarlo.elastic.net(n, p, d, Rho, c(7, 3, 2), Alpha, 1, TRUE, FALSE)
+
+unbalanced
+```
+Choice of alpha most important when correlation between covariates is very large.
+
+Summary
+- BALANCED BETA: Choice of alpha doesn't matter
+- UNBALANCED BETA: Choice of alpha only matters if correlation is very large
+
+
+Now, let's confirm this behaviour holds in the high-dimensional case. Consider a linear model with $p=40$ covariates, $n=35$ observations, and the first $d=10$ covariates have correlation $\rho=0.99$. Suppose all of the $d$ correlated covariates are equally important except for the very first variable, which is 3 times more important than the rest. We use the function $\mathtt{MonteCarlo.elastic.net()}$ to find various Elastic Net estimators.
+
+
+
+As is the case when $p<n$, small values of $\alpha$ fail to capture the importance of the first variable while large values of $\alpha$  are better able to identify which of the correlated covariates are important.
+
+
+Finally, we will analyze the mean squared error (MSE) of various Elastic Net models to see if the mixture parameter $\alpha$ impacts how well the model fits the data.
+
+We return to the case of $p=3$ and $n=100$ with balanced coefficients for simplicity fit the Elastic Net model 100 times for each value of $\alpha$. 
+```{r }
+n=100
+p=3
+d=2
+Rho=seq(-1, 1, 0.1)
+beta=c(5,5,2)
+Alpha=seq(0, 1, 0.2)
+K=100
+
+#ex3<-MonteCarlo.elastic.net(n, p, d, Rho, beta, Alpha, K)
+#ggplot(ex3, aes(x=Rho, y=MSE, group=Alpha))+geom_line(aes(colour=Alpha))+ylim(0,2)
+```
+Plotting the MSE against $\rho$ for different values of $\alpha$ we can see that after 100 iterations there is little difference in the MSE at each value of $\alpha$ and $\rho$. That is, for any level of correlation, the choice of $\alpha$ does not significantly effect how well the estimated model fits the data. 
+
+```{r }
+find.alpha<-function(X, Y){
+  fit<-cva.glmnet(X, Y)
+  alpha<-fit$alpha
+  error<-sapply(fit$modlist, function(mod) {min(mod$cvm)})
+  return(alpha[which.min(error)])
 }
-
-EN_p_3_one_iter<-elastic_net3(n, beta, rho, alpha,1)
-ggplot(data=EN_p_3_one_iter, aes(x=Alpha, y=MSE))+geom_line(alpha=0.4)
-
-
-
-```
-Now, lets see what happens in the high-dimensional case. 
-
-Suppose we have a dataset with $p=1000$ covariates, some of which are correlated, and $n=100$ observations. We perform Elastic net with $\alpha_1=0.1, \alpha_2=0.5, \alpha_3=0.9$ and $\lambda$ selected by cross-validation.  
-```{r }
-n<-100
-p<-1000
-beta<-c(runif(6,1,2), rep(0,95), runif(5, 1,2), rep(0,600), runif(5, 1,2), rep(0,290))
-rho<-seq(0, 0.9, 0.1)
-alpha<-seq(0, 1, 0.1)
-
-
-
-
-elastic_net_p<-function(n, p, beta, rho, alpha, K){
-  num_alpha<-length(alpha)
-  num_rho<-length(rho)
-  Rho<-rep(0, num_alpha)
-  Alpha<-rep(0,num_rho)
-  MSE<-rep(0, num_rho*num_alpha)
-  NumPredictors<-rep(0, num_rho*num_alpha)
-  
-  MSE_K<-cbind(Rho, Alpha, NumPredictors, matrix(0, num_rho*num_alpha, K))
-  
-    for(k in 1:K){
-    row=1
-    for(j in 1:num_rho){
-      cov<-matrix(rho[j], p, p)
-      for(l in 1:p){
-        cov[l,l]<-1}
-      X<-mvrnorm(n, mu=c(0,0,0), Sigma =cov)
-      design<-cbind(rep(1,n), X )
-      Y<-design%*%beta+rnorm(n)
-      for(i in 1:num_alpha){
-        fit_i<-glmnet(X, Y, family="gaussian", alpha=alpha[i])
-        fit_i_coef<-coef(fit_i, s="lambda.min")
-        yhat<-design%*%fit_i_coef
-        if(k<=1){
-          MSE_K[row,1]<-rho[j]
-          MSE_K[row,2]<-alpha[i]
-          MSE_K[row,3]<-length(fit_i_coef@x)}
-        MSE_K[row,(k+3)]<-mean(((Y-yhat)^2))
-        row=row+1
-      }}}
-  results<-cbind(MSE_K[,(1:3)], 0)
-  results[,4]<-rowMeans(MSE_K[,(4:K)])
-  colnames(results)[4]<-"MSE"
-  return(as.data.frame(results))
-}
-
-lambda<-matrix(0,length(alpha),length(rho))
-mse<-matrix(0,length(alpha),length(rho))
-q<-matrix(0,length(alpha), length(rho))
-
-
-
-for(j in 1:length(rho)){
-  cov=matrix(c(1, rho[j], rho[j], rho[j], rho[j], 
-              rho[j], 1, rho[j], rho[j], rho[j],
-              rho[j], rho[j], 1, rho[j], rho[j],
-              rho[j], rho[j], rho[j], 1, rho[j],
-              rho[j], rho[j], rho[j], rho[j], 1), nrow=5, ncol=5)
-  X1_5<-mvrnorm(n, mu=c(0,0,0,0,0), Sigma =cov )
-  X6_1000<-mvrnorm(n, mu=rep(0, 995), Sigma = diag(rep(1, 995)))
-  X<-cbind(X1_5, X6_1000)
-  design<-cbind(rep(1,n), X)
-  Y<-design%*%beta+rnorm(n)
-
-  for(i in 1:length(alpha)){
-    fit_i<-cv.glmnet(X, Y, family="gaussian", alpha=alpha[i])
-    lambda[i,j]<-fit_i$lambda.min
-    fit_i_coef<-coef(fit_i, s=lambda[i])
-    yhat<-design%*%fit_i_coef
-    mse[i,j]<-mean((Y-yhat)^2)
-  }}
-
-
-
-```
-
-```{r }
-n<-100
-beta<-c(5,1,3,2)
-rho<- seq(-0.9, 0.9, 0.25)
-alpha<-seq(0.1, 0.9, 0.1)
-
-elastic_net3<-function(n, beta, rho, alpha, K){
-  num_alpha<-length(alpha)
-  num_rho<-length(rho)
-  Rho<-rep(0, num_alpha)
-  Alpha<-rep(0,num_rho)
-  MSE<-rep(0, num_rho*num_alpha)
-  NumPredictors<-rep(0, num_rho*num_alpha)
-  
-  MSE_K<-cbind(Rho, Alpha, NumPredictors, matrix(0, num_rho*num_alpha, K))
-  
-  for(k in 1:K){
-    row=1
-    for(j in 1:num_rho){
-      cov<-matrix(data = c(1, rho[j], 0, rho[j], 1, 0, 0, 0, 1), nrow=3, ncol=3)
-      X<-mvrnorm(n, mu=c(0,0,0), Sigma =cov)
-      design<-cbind(rep(1,n), X )
-      Y<-design%*%beta+rnorm(n)
-      for(i in 1:num_alpha){
-        fit_i<-cv.glmnet(X, Y, family="gaussian", alpha=alpha[i])
-        fit_i_coef<-coef(fit_i, s="lambda.min")
-        yhat<-design%*%fit_i_coef
-        if(k<=1){
-          MSE_K[row,1]<-rho[j]
-          MSE_K[row,2]<-alpha[i]
-          MSE_K[row,3]<-length(fit_i_coef@x)}
-        MSE_K[row,(k+3)]<-mean(((Y-yhat)^2))
-        row=row+1
-      }}}
-  results<-cbind(MSE_K[,(1:3)], 0)
-  results[,4]<-rowMeans(MSE_K[,(4:K+3)])
-  colnames(results)[4]<-"MSE"
-  
-  return(as.data.frame(results))
-}
-#hundered_iter<-elastic_net3(n, beta, rho, alpha, 100)
-#fifty_iter<-elastic_net3(n, beta, rho, alpha, 50)
-ten_iter<-elastic_net3(n, beta, rho, alpha, 10)
-
-ggplot(data=hundered_iter, aes(x=Rho, y=MSE, group=factor(Alpha)))+geom_line(aes(colour=factor(Alpha)),  alpha=0.4)
-ggplot(data=fifty_iter, aes(x=Rho, y=MSE, group=factor(Alpha)))+geom_line(aes(colour=factor(Alpha)),  alpha=0.4)
-ggplot(data=ten_iter, aes(x=Rho, y=MSE, group=factor(Alpha)))+geom_line(aes(colour=factor(Alpha)),  alpha=0.4)
-
-
-
 
 ```
